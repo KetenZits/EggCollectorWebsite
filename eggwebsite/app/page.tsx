@@ -1,10 +1,50 @@
 'use client';
 
-import React, { useState, useMemo, useCallback, useRef } from 'react';
+import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
+import { 
+  Scale, 
+  Calculator, 
+  Calendar, 
+  TrendingUp, 
+  History, 
+  LayoutDashboard, 
+  ChevronRight,
+  Egg,
+  Download,
+  Filter,
+  RefreshCcw,
+  ArrowRight
+} from 'lucide-react';
 
-// --- 1. TYPESCRIPT TYPES & DATA MOCKUP ---
+// --- 0. STYLES & FONTS ---
+const GlobalStyles = () => (
+  <style>{`
+    @import url('https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700&display=swap');
+    
+    body {
+      font-family: 'Prompt', sans-serif;
+      background-color: #fcfbf9;
+    }
 
-// Define specific types for egg sizes and log data
+    .glass-panel {
+      background: rgba(255, 255, 255, 0.95);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+    }
+
+    .animate-fade-in {
+      animation: fadeIn 0.4s ease-out;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+  `}</style>
+);
+
+// --- 1. TYPES & DATA ---
+
 type EggSize = '0' | '1' | '2' | '3' | '4' | '5';
 type EggBreakdown = Record<EggSize, number>;
 
@@ -26,563 +66,636 @@ const MOCK_DATA_SOURCE: DailyLog[] = [
 ];
 
 const EGG_SIZES: EggSize[] = ['0', '1', '2', '3', '4', '5'];
-const EGG_COLORS: Record<EggSize, string> = {
-    '0': 'bg-yellow-400', '1': 'bg-teal-500', '2': 'bg-red-500',
-    '3': 'bg-blue-500', '4': 'bg-purple-500', '5': 'bg-slate-500'
+
+// Modern Color Palette for Eggs
+const EGG_THEME: Record<EggSize, { bg: string, text: string, ring: string, label: string }> = {
+  '0': { bg: 'bg-amber-100', text: 'text-amber-800', ring: 'ring-amber-200', label: 'จัมโบ้' },
+  '1': { bg: 'bg-orange-100', text: 'text-orange-800', ring: 'ring-orange-200', label: 'ใหญ่' },
+  '2': { bg: 'bg-rose-100', text: 'text-rose-800', ring: 'ring-rose-200', label: 'กลาง' },
+  '3': { bg: 'bg-sky-100', text: 'text-sky-800', ring: 'ring-sky-200', label: 'เล็ก' },
+  '4': { bg: 'bg-indigo-100', text: 'text-indigo-800', ring: 'ring-indigo-200', label: 'จิ๋ว' },
+  '5': { bg: 'bg-slate-100', text: 'text-slate-700', ring: 'ring-slate-200', label: 'คละ/บุบ' }
 };
-const ACCENT_COLOR = 'bg-amber-100'; // สีเนื้อ/ครีมอ่อน
-const BRAND_COLOR = 'bg-amber-500'; // สีสำหรับปุ่ม/เน้น
 
 // --- 2. UTILITY FUNCTIONS ---
+
 const formatNumber = (num: number | string): string => {
-    // Handle potential string inputs from toFixed
-    const numericValue = typeof num === 'string' ? parseFloat(num) : num;
-    return new Intl.NumberFormat('th-TH').format(numericValue);
+  const numericValue = typeof num === 'string' ? parseFloat(num) : num;
+  return new Intl.NumberFormat('th-TH').format(numericValue);
+}
+
+const formatDate = (dateStr: string) => {
+  const date = new Date(dateStr);
+  return new Intl.DateTimeFormat('th-TH', { 
+    year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' 
+  }).format(date);
 }
 
 interface BreakdownItem {
-    size: EggSize;
-    count: number;
-    percent: string;
+  size: EggSize;
+  count: number;
+  percent: string;
 }
 
 const calculateDailyBreakdown = (log: DailyLog): BreakdownItem[] => {
-    const breakdownData: BreakdownItem[] = EGG_SIZES.map(size => {
-        const count = log.breakdown[size] || 0;
-        const percent = log.total_sorted > 0 ? ((count / log.total_sorted) * 100) : 0;
-        return { size, count, percent: percent.toFixed(2) };
-    });
-    return breakdownData;
+  const breakdownData: BreakdownItem[] = EGG_SIZES.map(size => {
+    const count = log.breakdown[size] || 0;
+    const percent = log.total_sorted > 0 ? ((count / log.total_sorted) * 100) : 0;
+    return { size, count, percent: percent.toFixed(2) };
+  });
+  return breakdownData;
 };
 
-// --- 3. COMPONENTS ---
+// --- 3. UI COMPONENTS ---
 
-// Component สำหรับ Tooltip
-interface ChartTooltipProps {
-    content: string;
-    x: number;
-    y: number;
-    visible: boolean;
-}
-const ChartTooltip: React.FC<ChartTooltipProps> = ({ content, x, y, visible }) => {
-    return (
-        <div
-            style={{ left: x, top: y }}
-            className={`absolute z-20 p-2 bg-neutral-800 text-white text-xs rounded-lg shadow-xl pointer-events-none transition-opacity duration-200 ${visible ? 'opacity-100' : 'opacity-0'} transform -translate-x-1/2 -translate-y-full whitespace-nowrap`}
-        >
-            {content}
-        </div>
-    );
-};
-
-// Card สำหรับสรุปข้อมูลตัวเลขรายวัน
-interface SummaryCardProps {
-    title: string;
-    value: number | string;
-    unit: string;
-    icon: string;
-}
-const SummaryCard: React.FC<SummaryCardProps> = ({ title, value, unit, icon }) => (
-    <div className="bg-white p-6 rounded-xl shadow-md border-t-4 border-amber-300 transition-all hover:shadow-lg">
-        <div className="flex items-center space-x-3 mb-2">
-            <span className="text-amber-500">{icon}</span>
-            <p className="text-sm font-medium text-neutral-500 uppercase tracking-wider">{title}</p>
-        </div>
-        <div className="flex items-end">
-            <p className="text-4xl font-extrabold text-neutral-800 mr-2">{formatNumber(value)}</p>
-            <p className="text-md text-neutral-600 pb-1">{unit}</p>
-        </div>
-    </div>
+const Card: React.FC<{ children: React.ReactNode, className?: string }> = ({ children, className = "" }) => (
+  <div className={`bg-white rounded-2xl shadow-sm border border-stone-100 hover:shadow-md transition-shadow duration-300 ${className}`}>
+    {children}
+  </div>
 );
 
-// Component จำลองกราฟแท่งสำหรับแสดงผลรายวัน พร้อม Tooltip
-interface MockBarChartProps {
-    data: BreakdownItem[];
-}
-const MockBarChart: React.FC<MockBarChartProps> = ({ data }) => {
-    const maxCount = Math.max(...data.map(d => d.count)) * 1.1; // 10% buffer
-    const [tooltip, setTooltip] = useState<{ visible: boolean, x: number, y: number, content: string }>({ visible: false, x: 0, y: 0, content: '' });
-    const chartRef = useRef<HTMLDivElement>(null);
+// Tooltip Component
+const ChartTooltip: React.FC<{ content: React.ReactNode, x: number, y: number, visible: boolean }> = ({ content, x, y, visible }) => (
+  <div
+    style={{ left: x, top: y }}
+    className={`absolute z-50 p-3 bg-slate-800/90 backdrop-blur-sm text-white text-xs rounded-xl shadow-xl pointer-events-none transition-all duration-200 transform -translate-x-1/2 -translate-y-full mb-2 ${visible ? 'opacity-100 translate-y-[-10px]' : 'opacity-0 translate-y-0'}`}
+  >
+    {content}
+    {/* Arrow */}
+    <div className="absolute left-1/2 bottom-[-4px] w-2 h-2 bg-slate-800/90 transform -translate-x-1/2 rotate-45"></div>
+  </div>
+);
 
-    return (
-        <div ref={chartRef} className="relative h-72 w-full p-4">
-            {/* Chart Bars - ปรับจาก ml-16 เป็น ml-4 */}
-            <div className="flex space-x-4 h-full items-end ml-4">
-                {data.map((item, index) => (
-                    <div 
-                        key={item.size} 
-                        className="flex flex-col items-center group cursor-pointer w-1/6 h-full relative"
-                        onMouseMove={(e) => {
-                            if (chartRef.current) {
-                                const chartRect = chartRef.current.getBoundingClientRect();
-                                const x = e.clientX - chartRect.left;
-                                const y = e.clientY - chartRect.top;
-                                setTooltip({
-                                    visible: true,
-                                    x: x, 
-                                    y: y,
-                                    content: `เบอร์ ${item.size}: ${formatNumber(item.count)} (${item.percent}%)`
-                                });
-                            }
-                        }}
-                        onMouseLeave={() => setTooltip({ ...tooltip, visible: false })}
-                    >
-                        {/* Bar */}
-                        <div
-                            style={{ height: `${(item.count / maxCount) * 100}%`, backgroundColor: EGG_COLORS[item.size] ? '' : '' }}
-                            className={`w-full rounded-t-md transition-all duration-300 hover:scale-y-[1.05] relative ${EGG_COLORS[item.size]}`}
-                        >
-                        </div>
-                        <span className="text-sm font-medium mt-1 text-neutral-600">เบอร์ {item.size}</span>
-                    </div>
-                ))}
+// Summary Card
+interface SummaryCardProps {
+  title: string;
+  value: number | string;
+  unit: string;
+  icon: React.ReactNode;
+  trend?: string;
+  colorClass?: string;
+}
+
+const SummaryCard: React.FC<SummaryCardProps> = ({ title, value, unit, icon, colorClass = "bg-amber-500" }) => (
+  <Card className="p-6 relative overflow-hidden group">
+    <div className={`absolute top-0 right-0 w-24 h-24 ${colorClass} opacity-5 rounded-full -mr-8 -mt-8 transition-transform group-hover:scale-110`} />
+    <div className="flex items-center justify-between mb-4 relative z-10">
+      <div className={`p-3 rounded-xl ${colorClass} bg-opacity-10 text-${colorClass.split('-')[1]}-600`}>
+        {icon}
+      </div>
+    </div>
+    <div className="relative z-10">
+      <p className="text-sm font-medium text-stone-500 mb-1">{title}</p>
+      <div className="flex items-baseline gap-2">
+        <h3 className="text-3xl font-bold text-stone-800">{formatNumber(value)}</h3>
+        <span className="text-sm font-medium text-stone-400">{unit}</span>
+      </div>
+    </div>
+  </Card>
+);
+
+// Bar Chart
+interface ModernBarChartProps {
+  data: BreakdownItem[];
+}
+
+const ModernBarChart: React.FC<ModernBarChartProps> = ({ data }) => {
+  const maxCount = Math.max(...data.map(d => d.count)) * 1.15;
+  const [tooltip, setTooltip] = useState<{ visible: boolean, x: number, y: number, content: React.ReactNode }>({ visible: false, x: 0, y: 0, content: '' });
+  const chartRef = useRef<HTMLDivElement>(null);
+
+  return (
+    <div ref={chartRef} className="relative h-80 w-full pt-10 pb-2">
+      <div className="flex justify-between h-full items-end gap-2 sm:gap-4 px-2">
+        {data.map((item) => {
+          const heightPercent = (item.count / maxCount) * 100;
+          const theme = EGG_THEME[item.size];
+          
+          return (
+            <div 
+              key={item.size} 
+              className="flex flex-col items-center justify-end h-full w-full group relative"
+              onMouseMove={(e) => {
+                if (chartRef.current) {
+                  const rect = chartRef.current.getBoundingClientRect();
+                  setTooltip({
+                    visible: true,
+                    x: e.clientX - rect.left, 
+                    y: e.clientY - rect.top,
+                    content: (
+                      <div className="text-center">
+                         <div className="font-bold text-sm mb-1">เบอร์ {item.size} ({theme.label})</div>
+                         <div className="text-lg font-mono">{formatNumber(item.count)} ฟอง</div>
+                         <div className="text-xs opacity-80">{item.percent}% ของทั้งหมด</div>
+                      </div>
+                    )
+                  });
+                }
+              }}
+              onMouseLeave={() => setTooltip({ ...tooltip, visible: false })}
+            >
+              <div className="relative w-full sm:w-16 flex flex-col justify-end h-full">
+                {/* Bar */}
+                <div
+                  style={{ height: `${heightPercent}%` }}
+                  className={`w-full rounded-t-xl transition-all duration-500 ease-out hover:opacity-90 relative overflow-hidden ${theme.bg}`}
+                >
+                  <div className={`absolute bottom-0 left-0 right-0 h-full bg-gradient-to-t from-white/0 to-white/30`} />
+                  <div className={`absolute bottom-0 w-full h-1 ${theme.text.replace('text', 'bg')} opacity-20`} />
+                </div>
+              </div>
+              
+              {/* Label */}
+              <div className="mt-3 flex flex-col items-center">
+                 <span className={`w-6 h-6 sm:w-8 sm:h-8 flex items-center justify-center rounded-full text-xs sm:text-sm font-bold border-2 ${theme.bg} ${theme.text} ${theme.ring} mb-1`}>
+                   {item.size}
+                 </span>
+                 <span className="text-[10px] sm:text-xs text-stone-400 hidden sm:block">{theme.label}</span>
+              </div>
             </div>
-            
-            {/* Tooltip Render */}
-            {tooltip.visible && <ChartTooltip x={tooltip.x} y={tooltip.y} content={tooltip.content} visible={tooltip.visible} />}
-        </div>
-    );
+          );
+        })}
+      </div>
+      {tooltip.visible && <ChartTooltip {...tooltip} />}
+    </div>
+  );
 };
 
-// Component จำลองกราฟเส้นสำหรับข้อมูลย้อนหลัง พร้อม Tooltip
-interface MockLineChartProps {
-    data: DailyLog[];
+// Line Chart
+interface ModernLineChartProps {
+  data: DailyLog[];
 }
-const MockLineChart: React.FC<MockLineChartProps> = ({ data }) => {
-    const maxTotal = Math.max(...data.map(d => d.total_sorted)) * 1.1; // 10% buffer
-    const minTotal = Math.min(...data.map(d => d.total_sorted));
-    const [hoveredPoint, setHoveredPoint] = useState<DailyLog | null>(null);
-    const [tooltipPos, setTooltipPos] = useState<{ x: number, y: number, content: string, visible: boolean }>({ x: 0, y: 0, content: '', visible: false });
-    const chartRef = useRef<HTMLDivElement>(null);
-    
-    const yAxisRange = maxTotal - minTotal;
-    const yAxisValues = [0, 0.25, 0.5, 0.75, 1].map(ratio => Math.round(minTotal + yAxisRange * ratio));
-    
-    if (data.length === 0) return null;
 
-    const getRelativeY = (value: number) => 10 + 80 * (1 - (value - minTotal) / yAxisRange); // 10% padding top/bottom (10 to 90)
-    const getRelativeX = (index: number) => (index / (data.length - 1)) * 100;
+const ModernLineChart: React.FC<ModernLineChartProps> = ({ data }) => {
+  const chartHeight = 300;
+  const padding = { top: 20, right: 20, bottom: 30, left: 50 };
+  
+  if (data.length === 0) return null;
 
-    const points = data.map((d, i) => {
-        const x = getRelativeX(i);
-        const y = getRelativeY(d.total_sorted);
-        return { data: d, x, y };
+  const maxVal = Math.max(...data.map(d => d.total_sorted)) * 1.1;
+  const minVal = Math.min(...data.map(d => d.total_sorted)) * 0.9;
+  const range = maxVal - minVal;
+
+  const getX = (index: number) => ((index / (data.length - 1)) * 100);
+  const getY = (val: number) => 100 - ((val - minVal) / range) * 100;
+
+  const points = data.map((d, i) => ({
+    x: getX(i),
+    y: getY(d.total_sorted),
+    data: d
+  }));
+
+  const pathD = points.map((p, i) => 
+    (i === 0 ? 'M' : 'L') + ` ${p.x} ${p.y}`
+  ).join(' ');
+
+  // Create area fill
+  const areaD = `${pathD} L 100 100 L 0 100 Z`;
+
+  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
+
+  return (
+    <div className="w-full h-[350px] relative select-none">
+       {/* Y Axis Labels */}
+       <div className="absolute left-0 top-0 bottom-8 w-12 flex flex-col justify-between text-[10px] text-stone-400 py-4 text-right pr-2 border-r border-stone-100">
+          <span>{formatNumber(maxVal.toFixed(0))}</span>
+          <span>{formatNumber((minVal + range/2).toFixed(0))}</span>
+          <span>{formatNumber(minVal.toFixed(0))}</span>
+       </div>
+
+       {/* Chart Area */}
+       <div className="absolute left-14 right-4 top-4 bottom-8">
+          <svg className="w-full h-full overflow-visible" viewBox="0 0 100 100" preserveAspectRatio="none">
+             <defs>
+               <linearGradient id="chartGradient" x1="0" y1="0" x2="0" y2="1">
+                 <stop offset="0%" stopColor="#f59e0b" stopOpacity="0.2" />
+                 <stop offset="100%" stopColor="#f59e0b" stopOpacity="0" />
+               </linearGradient>
+             </defs>
+             
+             {/* Grid Lines */}
+             {[0, 25, 50, 75, 100].map(y => (
+               <line key={y} x1="0" y1={y} x2="100" y2={y} stroke="#e7e5e4" strokeDasharray="3,3" strokeWidth="0.5" />
+             ))}
+
+             {/* Area Fill */}
+             <path d={areaD} fill="url(#chartGradient)" />
+
+             {/* Line */}
+             <path d={pathD} fill="none" stroke="#f59e0b" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+
+             {/* Points */}
+             {points.map((p, i) => (
+                <g key={i} 
+                   onMouseEnter={() => setHoveredIndex(i)} 
+                   onMouseLeave={() => setHoveredIndex(null)}
+                   className="cursor-pointer"
+                >
+                  {/* Invisible Hit Area */}
+                  <circle cx={p.x} cy={p.y} r="6" fill="transparent" />
+                  
+                  {/* Visible Dot */}
+                  <circle 
+                    cx={p.x} 
+                    cy={p.y} 
+                    r={hoveredIndex === i ? 5 : 3} 
+                    fill="white" 
+                    stroke="#f59e0b" 
+                    strokeWidth="2" 
+                    className="transition-all duration-200"
+                  />
+                </g>
+             ))}
+          </svg>
+
+          {/* Tooltip Overlay */}
+          {hoveredIndex !== null && (
+             <div 
+               className="absolute bg-white shadow-xl rounded-lg p-3 border border-stone-100 transform -translate-x-1/2 -translate-y-full pointer-events-none z-10"
+               style={{ 
+                 left: `${points[hoveredIndex].x}%`, 
+                 top: `${points[hoveredIndex].y}%`,
+                 marginTop: '-15px'
+               }}
+             >
+                <div className="text-xs font-semibold text-stone-500 mb-1">{points[hoveredIndex].data.date}</div>
+                <div className="text-lg font-bold text-amber-600">{formatNumber(points[hoveredIndex].data.total_sorted)} ฟอง</div>
+             </div>
+          )}
+       </div>
+
+       {/* X Axis Labels */}
+       <div className="absolute bottom-0 left-14 right-4 flex justify-between text-[10px] text-stone-400">
+         {data.map((d, i) => (
+           <div key={i} className="text-center transform -translate-x-1/2" style={{ width: '40px' }}>
+              {d.date.substring(5)}
+           </div>
+         ))}
+       </div>
+    </div>
+  );
+};
+
+
+// --- 4. PAGE SECTIONS ---
+
+// Dashboard View
+const DailyDashboard: React.FC<{ 
+  selectedDate: string;
+  log: DailyLog | null;
+  setView: (v: 'dashboard' | 'history') => void;
+  setDate: (d: string) => void;
+}> = ({ selectedDate, log, setView, setDate }) => {
+  
+  const breakdownData = useMemo(() => log ? calculateDailyBreakdown(log) : [], [log]);
+  const totalSorted = log?.total_sorted || 0;
+  const totalWeight = log?.total_weight_kg || 0;
+  const avgWeight = totalSorted > 0 ? (totalWeight / totalSorted * 1000).toFixed(2) : '0.00';
+
+  return (
+    <div className="space-y-6 animate-fade-in">
+       {/* Date Picker Header */}
+       <Card className="p-4 flex flex-col sm:flex-row justify-between items-center bg-gradient-to-r from-stone-50 to-white">
+          <div className="flex items-center space-x-3 w-full sm:w-auto mb-4 sm:mb-0">
+             <div className="bg-amber-100 p-2 rounded-lg text-amber-600">
+               <Calendar size={20} />
+             </div>
+             <div>
+               <label className="text-xs font-bold text-stone-400 uppercase tracking-wide">ข้อมูลประจำวันที่</label>
+               <input 
+                 type="date" 
+                 value={selectedDate}
+                 onChange={(e) => setDate(e.target.value)}
+                 className="block w-full bg-transparent border-none p-0 text-stone-800 font-bold text-lg focus:ring-0 cursor-pointer"
+               />
+             </div>
+          </div>
+
+          <div className="flex items-center text-sm text-stone-500 bg-white px-4 py-2 rounded-full border border-stone-100 shadow-sm">
+             {log ? (
+               <><span className="w-2 h-2 rounded-full bg-green-500 mr-2"></span> บันทึกแล้ว</>
+             ) : (
+               <><span className="w-2 h-2 rounded-full bg-red-500 mr-2"></span> ไม่มีข้อมูล</>
+             )}
+          </div>
+       </Card>
+
+       {log ? (
+         <>
+           {/* Top Stats */}
+           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <SummaryCard 
+                 title="จำนวนไข่คัดแยก" 
+                 value={totalSorted} 
+                 unit="ฟอง" 
+                 icon={<Calculator size={24} />} 
+                 colorClass="bg-amber-500"
+              />
+              <SummaryCard 
+                 title="น้ำหนักรวม" 
+                 value={totalWeight} 
+                 unit="กิโลกรัม" 
+                 icon={<Scale size={24} />} 
+                 colorClass="bg-emerald-500"
+              />
+              <SummaryCard 
+                 title="เฉลี่ยต่อฟอง" 
+                 value={avgWeight} 
+                 unit="กรัม" 
+                 icon={<Egg size={24} />} 
+                 colorClass="bg-blue-500"
+              />
+           </div>
+
+           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              {/* Chart Section */}
+              <Card className="lg:col-span-2 p-6">
+                 <div className="flex justify-between items-center mb-6">
+                   <div>
+                     <h2 className="text-xl font-bold text-stone-800">สัดส่วนเบอร์ไข่</h2>
+                     <p className="text-sm text-stone-500">จำแนกตามขนาด (0-5)</p>
+                   </div>
+                   <div className="p-2 bg-stone-50 rounded-lg">
+                      <TrendingUp size={20} className="text-stone-400" />
+                   </div>
+                 </div>
+                 <ModernBarChart data={breakdownData} />
+              </Card>
+
+              {/* Table Section */}
+              <Card className="lg:col-span-1 p-0 overflow-hidden flex flex-col">
+                 <div className="p-6 border-b border-stone-100 bg-stone-50/50">
+                    <h2 className="text-lg font-bold text-stone-800">รายละเอียด</h2>
+                 </div>
+                 <div className="flex-1 overflow-y-auto">
+                    <table className="w-full">
+                       <thead className="bg-stone-50 text-stone-500 text-xs uppercase font-medium">
+                          <tr>
+                            <th className="px-6 py-3 text-left">ขนาด</th>
+                            <th className="px-6 py-3 text-right">จำนวน</th>
+                            <th className="px-6 py-3 text-right">%</th>
+                          </tr>
+                       </thead>
+                       <tbody className="divide-y divide-stone-100">
+                          {breakdownData.map((item) => {
+                             const theme = EGG_THEME[item.size];
+                             return (
+                               <tr key={item.size} className="hover:bg-amber-50/30 transition-colors">
+                                  <td className="px-6 py-4">
+                                     <div className="flex items-center">
+                                        <span className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold mr-3 ${theme.bg} ${theme.text}`}>
+                                           {item.size}
+                                        </span>
+                                        <div className="flex flex-col">
+                                          <span className="text-sm font-medium text-stone-700">เบอร์ {item.size}</span>
+                                          <span className="text-[10px] text-stone-400">{theme.label}</span>
+                                        </div>
+                                     </div>
+                                  </td>
+                                  <td className="px-6 py-4 text-right">
+                                     <div className="text-sm font-bold text-stone-700">{formatNumber(item.count)}</div>
+                                  </td>
+                                  <td className="px-6 py-4 text-right">
+                                     <div className="text-sm text-stone-500">{item.percent}%</div>
+                                  </td>
+                               </tr>
+                             );
+                          })}
+                       </tbody>
+                    </table>
+                 </div>
+                 <div className="p-4 bg-stone-50 border-t border-stone-100">
+                    <div className="flex justify-between items-center text-sm">
+                       <span className="font-semibold text-stone-600">รวมทั้งหมด</span>
+                       <span className="font-bold text-amber-600 text-lg">{formatNumber(totalSorted)}</span>
+                    </div>
+                 </div>
+              </Card>
+           </div>
+         </>
+       ) : (
+         <div className="flex flex-col items-center justify-center py-20 bg-white rounded-3xl border-2 border-dashed border-stone-200">
+            <div className="bg-stone-100 p-4 rounded-full mb-4">
+               <Calendar size={40} className="text-stone-300" />
+            </div>
+            <h3 className="text-lg font-bold text-stone-500">ไม่พบข้อมูลสำหรับวันที่เลือก</h3>
+            <p className="text-stone-400 mt-1">กรุณาเลือกวันที่อื่น หรือเพิ่มข้อมูลใหม่</p>
+         </div>
+       )}
+    </div>
+  );
+};
+
+// History View
+const HistoryView: React.FC<{ setView: (v: 'dashboard' | 'history') => void }> = ({ setView }) => {
+  const defaultEndDate = MOCK_DATA_SOURCE[MOCK_DATA_SOURCE.length - 1].date;
+  const defaultStartDate = MOCK_DATA_SOURCE[0].date;
+  
+  const [startDate, setStartDate] = useState<string>(defaultStartDate);
+  const [endDate, setEndDate] = useState<string>(defaultEndDate);
+  const [filterData, setFilterData] = useState<DailyLog[]>(MOCK_DATA_SOURCE);
+
+  const handleFilter = useCallback(() => {
+    const filtered = MOCK_DATA_SOURCE.filter(log => log.date >= startDate && log.date <= endDate);
+    setFilterData(filtered);
+  }, [startDate, endDate]);
+
+  const summary = useMemo(() => {
+    const totalSorted = filterData.reduce((sum, log) => sum + log.total_sorted, 0);
+    const totalWeight = filterData.reduce((sum, log) => sum + log.total_weight_kg, 0);
+    const avgPerDay = filterData.length > 0 ? (totalSorted / filterData.length).toFixed(0) : 0;
+    
+    // Calculate aggregate breakdown
+    const breakdownTotal: Record<string, number> = {};
+    filterData.forEach(log => {
+      EGG_SIZES.forEach(size => breakdownTotal[size] = (breakdownTotal[size] || 0) + log.breakdown[size]);
     });
     
-    const polylinePoints = points.map(p => `${p.x},${p.y}`).join(' ');
+    const breakdownArray = EGG_SIZES.map(size => ({
+      size,
+      count: breakdownTotal[size] || 0,
+      percent: totalSorted > 0 ? ((breakdownTotal[size] / totalSorted) * 100).toFixed(2) : '0.00'
+    }));
 
-    const handlePointHover = (e: React.MouseEvent<SVGCircleElement, MouseEvent>, p: typeof points[0]) => {
-        if (chartRef.current) {
-            const chartRect = chartRef.current.getBoundingClientRect();
-            // Adjust X for left padding (16px from pl-16)
-            const x = (e.clientX - chartRect.left) - 16; 
-            const y = e.clientY - chartRect.top; 
-            setTooltipPos({ 
-                x: x, 
-                y: y, 
-                content: `วันที่ ${p.data.date}: ${formatNumber(p.data.total_sorted)} ฟอง`,
-                visible: true
-            });
-            setHoveredPoint(p.data);
-        }
-    };
+    return { totalSorted, totalWeight, avgPerDay, breakdownArray, days: filterData.length };
+  }, [filterData]);
 
-    const handleMouseLeave = () => {
-        setTooltipPos({ ...tooltipPos, visible: false });
-        setHoveredPoint(null);
-    };
-
-    return (
-        <div ref={chartRef} className="relative p-4 border border-neutral-200 rounded-lg bg-white h-96 flex flex-col justify-center items-center">
-            <div className="text-lg font-semibold text-neutral-700 mb-4">แนวโน้มจำนวนคัดแยกทั้งหมด (รายวัน)</div>
-            <div className="relative w-full h-full pb-8"> {/* Adjusted padding for X-axis labels */}
-                
-                {/* Y-Axis Labels */}
-                <div className="absolute inset-y-0 w-16 left-0 text-right pr-2 pt-2 pb-8">
-                    {yAxisValues.map((value, index) => {
-                        const top = `${10 + 80 * (1 - index / (yAxisValues.length - 1))}%`;
-                        return (
-                            <span 
-                                key={index} 
-                                style={{ top: `calc(${top} - 0.5em)` }} // 0.5em offset for text center
-                                className="absolute right-0 text-xs text-neutral-500"
-                            >
-                                {formatNumber(value)}
-                            </span>
-                        );
-                    })}
+  return (
+    <div className="space-y-6 animate-fade-in">
+       {/* Filter Section */}
+       <Card className="p-6">
+          <div className="flex flex-col lg:flex-row justify-between items-end gap-4">
+             <div className="w-full">
+                <h2 className="text-lg font-bold text-stone-800 mb-4 flex items-center gap-2">
+                   <Filter size={20} className="text-amber-500" />
+                   กำหนดช่วงเวลา
+                </h2>
+                <div className="flex flex-col sm:flex-row gap-4 w-full">
+                   <div className="flex-1">
+                      <label className="text-xs font-semibold text-stone-500 mb-1 block">วันเริ่มต้น</label>
+                      <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="w-full p-2.5 bg-stone-50 border border-stone-200 rounded-lg text-stone-700 focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-all outline-none" />
+                   </div>
+                   <div className="flex-1">
+                      <label className="text-xs font-semibold text-stone-500 mb-1 block">วันสิ้นสุด</label>
+                      <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="w-full p-2.5 bg-stone-50 border border-stone-200 rounded-lg text-stone-700 focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-all outline-none" />
+                   </div>
                 </div>
-
-                <svg 
-                    className="absolute inset-0 w-full h-full pl-16 pr-4 pb-8" 
-                    viewBox="0 0 100 100" 
-                    preserveAspectRatio="none"
-                    onMouseLeave={handleMouseLeave}
-                >
-                    {/* Grid Lines */}
-                    {[1, 2, 3, 4].map(i => (
-                        <line key={`grid-${i}`} x1="0" y1={10 + 80 * i / 5} x2="100" y2={10 + 80 * i / 5} stroke="#f0f0f0" strokeDasharray="2,2" />
-                    ))}
-
-                    {/* Line Drawing */}
-                    <polyline
-                        fill="none"
-                        stroke="#f59e0b" // สีส้มอำพัน
-                        strokeWidth="2"
-                        points={polylinePoints}
-                    />
-
-                    {/* Data Points and Hover Targets */}
-                    {points.map((p, i) => (
-                        <React.Fragment key={i}>
-                            <circle cx={p.x} cy={p.y} r="2" fill="#f59e0b" stroke="white" strokeWidth="1.5" />
-                            {/* Larger invisible circle for hover target */}
-                            <circle 
-                                cx={p.x} cy={p.y} r="5" fill="transparent"
-                                onMouseEnter={(e) => handlePointHover(e, p)}
-                            />
-                        </React.Fragment>
-                    ))}
-                </svg>
-
-                {/* X-Axis Labels (Dates) */}
-                <div className="absolute bottom-0 left-16 right-4 flex justify-between h-8">
-                    {data.map((d, i) => (
-                        <span 
-                            key={i} 
-                            className="text-xs text-neutral-600 absolute"
-                            style={{ left: `${getRelativeX(i)}%`, transform: 'translateX(-50%)' }}
-                        >
-                            {d.date.substring(5)}
-                        </span>
-                    ))}
-                </div>
-            </div>
-            
-            {/* Tooltip Render */}
-            {tooltipPos.visible && <ChartTooltip x={tooltipPos.x} y={tooltipPos.y} content={tooltipPos.content} visible={tooltipPos.visible} />}
-        </div>
-    );
-};
-
-
-// --- 4. DAILY DASHBOARD PAGE ---
-interface DailyDashboardProps {
-    selectedDate: string;
-    log: DailyLog | null;
-    setView: (view: 'dashboard' | 'history') => void;
-    setDate: (date: string) => void;
-}
-const DailyDashboard: React.FC<DailyDashboardProps> = ({ selectedDate, log, setView, setDate }) => {
-    const breakdownData = useMemo(() => {
-        return log ? calculateDailyBreakdown(log) : [];
-    }, [log]);
-
-    const totalSorted = log?.total_sorted || 0;
-    const totalWeight = log?.total_weight_kg || 0;
-    const avgWeight = totalSorted > 0 ? (totalWeight / totalSorted * 1000).toFixed(2) : '0.00'; // กรัม/ฟอง
-
-    return (
-        <div className="p-4 sm:p-8">
-            <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 pb-4 border-b border-amber-200">
-                <h1 className="text-3xl font-bold text-neutral-800">🥚 สรุปการคัดแยกประจำวัน</h1>
-                <button
-                    onClick={() => setView('history')}
-                    className={`mt-4 sm:mt-0 px-6 py-2 rounded-full font-medium text-white transition-all shadow-md ${BRAND_COLOR} hover:bg-amber-600`}
-                >
-                    ดูข้อมูลย้อนหลัง
+             </div>
+             <div className="flex gap-3 w-full lg:w-auto">
+                <button onClick={handleFilter} className="flex-1 lg:flex-none px-6 py-2.5 bg-amber-500 hover:bg-amber-600 text-white font-medium rounded-lg shadow-md hover:shadow-lg transition-all flex justify-center items-center gap-2">
+                   <RefreshCcw size={18} /> อัพเดท
                 </button>
-            </header>
+             </div>
+          </div>
+       </Card>
 
-            {/* Date Selector */}
-            <div className="mb-8 p-4 bg-white rounded-xl shadow-sm inline-block">
-                <label className="text-neutral-700 mr-3 font-medium block sm:inline">วันที่ที่เลือก: </label>
-                <input 
-                    type="date" 
-                    value={selectedDate} 
-                    onChange={(e) => setDate(e.target.value)}
-                    className="border border-neutral-300 p-2 rounded-lg text-neutral-700 mt-2 sm:mt-0" 
-                />
-                {log === null && (
-                    <p className="text-red-500 mt-2">ไม่พบข้อมูลสำหรับวันที่นี้</p>
-                )}
+       {filterData.length > 0 ? (
+         <>
+            {/* Charts & Summary Grid */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+               <Card className="lg:col-span-2 p-6">
+                  <div className="flex justify-between items-center mb-6">
+                     <h3 className="text-lg font-bold text-stone-800">แนวโน้มการผลิต</h3>
+                     <span className="text-xs font-medium bg-amber-100 text-amber-700 px-2 py-1 rounded-md">{summary.days} วัน</span>
+                  </div>
+                  <ModernLineChart data={filterData} />
+               </Card>
+
+               <div className="space-y-6">
+                  <SummaryCard 
+                     title="ยอดรวมทั้งหมด" 
+                     value={summary.totalSorted} 
+                     unit="ฟอง" 
+                     icon={<LayoutDashboard size={20} />} 
+                     colorClass="bg-indigo-500"
+                  />
+                  <SummaryCard 
+                     title="เฉลี่ยต่อวัน" 
+                     value={summary.avgPerDay} 
+                     unit="ฟอง/วัน" 
+                     icon={<Calculator size={20} />} 
+                     colorClass="bg-rose-500"
+                  />
+               </div>
             </div>
 
-            {log && (
-                <>
-                    {/* Summary Cards */}
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
-                        <SummaryCard 
-                            title="จำนวนรวมที่คัดแยก" 
-                            value={totalSorted} 
-                            unit="ฟอง" 
-                            icon="🔢"
-                        />
-                        <SummaryCard 
-                            title="น้ำหนักรวม" 
-                            value={totalWeight} 
-                            unit="กก." 
-                            icon="⚖️"
-                        />
-                        <SummaryCard 
-                            title="น้ำหนักเฉลี่ยต่อฟอง" 
-                            value={avgWeight} 
-                            unit="กรัม" 
-                            icon="🍳"
-                        />
+            {/* Breakdown Summary */}
+            <Card className="p-6">
+               <div className="flex justify-between items-center mb-6">
+                  <h3 className="text-lg font-bold text-stone-800">สรุปยอดรวมตามขนาด</h3>
+                  <button className="flex items-center gap-2 text-sm text-stone-500 hover:text-amber-600 transition-colors">
+                     <Download size={16} /> Export CSV
+                  </button>
+               </div>
+               
+               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+                  {summary.breakdownArray.map(item => (
+                    <div key={item.size} className="bg-stone-50 rounded-xl p-4 border border-stone-100 flex flex-col items-center justify-center text-center hover:border-amber-200 transition-colors">
+                       <div className={`w-10 h-10 rounded-full ${EGG_THEME[item.size].bg} ${EGG_THEME[item.size].text} flex items-center justify-center font-bold text-lg mb-2`}>
+                          {item.size}
+                       </div>
+                       <span className="text-xs text-stone-400 mb-1">{EGG_THEME[item.size].label}</span>
+                       <span className="text-lg font-bold text-stone-800">{formatNumber(item.count)}</span>
+                       <span className="text-xs font-medium text-stone-500">{item.percent}%</span>
                     </div>
-
-                    {/* Breakdown: Graph & Table */}
-                    <div className="bg-white p-6 rounded-xl shadow-lg">
-                        <h2 className="text-2xl font-semibold text-neutral-800 mb-6 border-b pb-3">รายละเอียดตามเบอร์ไข่ ({log.date})</h2>
-                        
-                        <div className="mb-10">
-                            <MockBarChart data={breakdownData} />
-                        </div>
-
-                        <div className="overflow-x-auto">
-                            <table className="min-w-full divide-y divide-neutral-200 border border-neutral-200 rounded-lg">
-                                <thead className={`text-neutral-800 ${ACCENT_COLOR}`}>
-                                    <tr>
-                                        <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider">เบอร์ไข่</th>
-                                        <th className="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider">จำนวนฟอง</th>
-                                        <th className="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider">เปอร์เซ็นต์ (%)</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="bg-white divide-y divide-neutral-100">
-                                    {breakdownData.map((item) => (
-                                        <tr key={item.size} className="hover:bg-neutral-50 transition duration-100">
-                                            <td className="px-6 py-3 whitespace-nowrap font-medium text-neutral-800">
-                                                <span className={`inline-block w-3 h-3 rounded-full mr-3 ${EGG_COLORS[item.size]}`}></span>
-                                                เบอร์ {item.size}
-                                            </td>
-                                            <td className="px-6 py-3 whitespace-nowrap text-right text-sm text-neutral-700">
-                                                {formatNumber(item.count)}
-                                            </td>
-                                            <td className="px-6 py-3 whitespace-nowrap text-right text-sm text-neutral-700">
-                                                {item.percent}%
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                                <tfoot>
-                                    <tr className={`font-bold ${BRAND_COLOR}/30`}>
-                                        <td className='px-6 py-3 text-left text-neutral-800'>รวม</td>
-                                        <td className='px-6 py-3 text-right text-neutral-800'>{formatNumber(totalSorted)}</td>
-                                        <td className='px-6 py-3 text-right text-neutral-800'>100.00%</td>
-                                    </tr>
-                                </tfoot>
-                            </table>
-                        </div>
-                    </div>
-                </>
-            )}
-        </div>
-    );
+                  ))}
+               </div>
+            </Card>
+         </>
+       ) : (
+         <div className="p-12 text-center bg-white rounded-2xl shadow-sm border border-stone-100">
+            <p className="text-stone-400">ไม่พบข้อมูลในช่วงเวลาที่เลือก</p>
+         </div>
+       )}
+    </div>
+  );
 };
 
-
-// --- 5. HISTORICAL SUMMARY PAGE ---
-interface HistoricalSummaryProps {
-    setView: (view: 'dashboard' | 'history') => void;
-}
-const HistoricalSummary: React.FC<HistoricalSummaryProps> = ({ setView }) => {
-    // กำหนดช่วงเวลาเริ่มต้นและสิ้นสุด
-    const defaultEndDate = MOCK_DATA_SOURCE[MOCK_DATA_SOURCE.length - 1].date;
-    const defaultStartDate = MOCK_DATA_SOURCE[0].date;
-    
-    const [startDate, setStartDate] = useState<string>(defaultStartDate);
-    const [endDate, setEndDate] = useState<string>(defaultEndDate);
-    const [filterData, setFilterData] = useState<DailyLog[]>(MOCK_DATA_SOURCE);
-
-    // ฟังก์ชันกรองข้อมูลตามช่วงเวลา
-    const handleFilter = useCallback(() => {
-        const filtered = MOCK_DATA_SOURCE.filter(log => log.date >= startDate && log.date <= endDate);
-        setFilterData(filtered);
-    }, [startDate, endDate]);
-
-    // สรุปข้อมูลรวมสำหรับช่วงเวลาที่เลือก
-    const aggregateSummary = useMemo(() => {
-        const totalSorted = filterData.reduce((sum, log) => sum + log.total_sorted, 0);
-        const totalWeight = filterData.reduce((sum, log) => sum + log.total_weight_kg, 0);
-        const days = filterData.length;
-        const avgPerDay = days > 0 ? (totalSorted / days).toFixed(0) : 0;
-
-        const breakdown: Record<string, number> = {};
-        filterData.forEach(log => {
-            EGG_SIZES.forEach(size => {
-                breakdown[size] = (breakdown[size] || 0) + (log.breakdown[size] || 0);
-            });
-        });
-        
-        const breakdownArray: BreakdownItem[] = EGG_SIZES.map(size => ({
-            size,
-            count: breakdown[size] || 0,
-            percent: totalSorted > 0 ? ((breakdown[size] / totalSorted) * 100).toFixed(2) : '0.00'
-        }));
-
-        return { totalSorted, totalWeight, days, avgPerDay, breakdownArray };
-    }, [filterData]);
-
-
-    return (
-        <div className="p-4 sm:p-8">
-            <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 pb-4 border-b border-amber-200">
-                <h1 className="text-3xl font-bold text-neutral-800">📊 สรุปข้อมูลย้อนหลัง</h1>
-                <button
-                    onClick={() => setView('dashboard')}
-                    className="mt-4 sm:mt-0 px-6 py-2 rounded-full font-medium text-neutral-700 bg-neutral-200 hover:bg-neutral-300 transition-all shadow-md"
-                >
-                    กลับหน้า Dashboard
-                </button>
-            </header>
-
-            {/* Date Range Selector */}
-            <div className="bg-white p-6 rounded-xl shadow-lg mb-8">
-                <h2 className="text-xl font-semibold text-neutral-800 mb-4">กำหนดขอบเขตระยะเวลา</h2>
-                <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 items-end">
-                    <label className="block">
-                        <span className="text-neutral-700">วันเริ่มต้น:</span>
-                        <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="w-full p-2 border rounded-lg mt-1" />
-                    </label>
-                    <label className="block">
-                        <span className="text-neutral-700">วันสิ้นสุด:</span>
-                        <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="w-full p-2 border rounded-lg mt-1" />
-                    </label>
-                    <button 
-                        onClick={handleFilter}
-                        className={`w-full py-2 rounded-lg font-medium text-white shadow-md ${BRAND_COLOR} hover:bg-amber-600 transition-all`}
-                    >
-                        เรียกดูข้อมูล
-                    </button>
-                    <button 
-                        onClick={() => {setStartDate(defaultStartDate); setEndDate(defaultEndDate); handleFilter()}}
-                        className="w-full py-2 rounded-lg font-medium text-neutral-700 bg-neutral-100 border border-neutral-300 hover:bg-neutral-200 transition-all"
-                    >
-                        รีเซ็ต
-                    </button>
-                </div>
-            </div>
-            
-            {filterData.length > 0 ? (
-                <>
-                    {/* Historical Chart */}
-                    <div className="bg-white p-6 rounded-xl shadow-lg mb-8">
-                        <h2 className="text-2xl font-semibold text-neutral-800 mb-4 border-b pb-2">กราฟจำนวนคัดแยกรายวัน (ช่วง {startDate} ถึง {endDate})</h2>
-                        <MockLineChart data={filterData} />
-                    </div>
-                    
-                    {/* Aggregate Summary Table */}
-                    <div className="bg-white p-6 rounded-xl shadow-lg">
-                        <h2 className="text-2xl font-semibold text-neutral-800 mb-4 border-b pb-2">ตารางสรุปข้อมูลรวม</h2>
-                        
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-                            <SummaryCard 
-                                title="จำนวนรวมทั้งหมด" 
-                                value={aggregateSummary.totalSorted} 
-                                unit="ฟอง" 
-                                icon="📈"
-                            />
-                            <SummaryCard 
-                                title="เฉลี่ยต่อวัน" 
-                                value={aggregateSummary.avgPerDay} 
-                                unit="ฟอง" 
-                                icon="🗓️"
-                            />
-                            <SummaryCard 
-                                title="จำนวนวันบันทึก" 
-                                value={aggregateSummary.days} 
-                                unit="วัน" 
-                                icon="⏳"
-                            />
-                        </div>
-
-                        <div className="overflow-x-auto">
-                            <table className="min-w-full divide-y divide-neutral-200 border border-neutral-200 rounded-lg">
-                                <thead className={`text-neutral-800 ${ACCENT_COLOR}`}>
-                                    <tr>
-                                        <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider">เบอร์ไข่</th>
-                                        <th className="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider">จำนวนรวม (ฟอง)</th>
-                                        <th className="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider">สัดส่วนรวม (%)</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="bg-white divide-y divide-neutral-100">
-                                    {aggregateSummary.breakdownArray.map((item) => (
-                                        <tr key={item.size} className="hover:bg-neutral-50 transition duration-100">
-                                            <td className="px-6 py-3 whitespace-nowrap font-medium text-neutral-800">
-                                                <span className={`inline-block w-3 h-3 rounded-full mr-3 ${EGG_COLORS[item.size]}`}></span>
-                                                เบอร์ {item.size}
-                                            </td>
-                                            <td className="px-6 py-3 whitespace-nowrap text-right text-sm text-neutral-700">
-                                                {formatNumber(item.count)}
-                                            </td>
-                                            <td className="px-6 py-3 whitespace-nowrap text-right text-sm text-neutral-700">
-                                                {item.percent}%
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                                <tfoot>
-                                    <tr className={`font-bold ${BRAND_COLOR}/30`}>
-                                        <td className='px-6 py-3 text-left text-neutral-800'>รวมทั้งหมด</td>
-                                        <td className='px-6 py-3 text-right text-neutral-800'>{formatNumber(aggregateSummary.totalSorted)}</td>
-                                        <td className='px-6 py-3 text-right text-neutral-800'>100.00%</td>
-                                    </tr>
-                                </tfoot>
-                            </table>
-                        </div>
-                        
-                        <div className="mt-6 text-right">
-                            <button className="bg-neutral-700 text-white py-2 px-4 rounded-lg hover:bg-neutral-800 transition duration-150 shadow-md">
-                                ⬇️ Export ข้อมูล (CSV/Excel)
-                            </button>
-                        </div>
-                    </div>
-                </>
-            ) : (
-                <div className="text-center p-10 bg-white rounded-xl shadow-lg text-neutral-600">
-                    ไม่พบข้อมูลในช่วงวันที่ที่เลือก กรุณาลองเลือกช่วงเวลาอื่น
-                </div>
-            )}
-
-        </div>
-    );
-};
-
-
-// --- 6. MAIN APP COMPONENT ---
+// --- 5. MAIN LAYOUT ---
 
 const App: React.FC = () => {
-    // State สำหรับจำลองการเปลี่ยนหน้า: 'dashboard' หรือ 'history'
-    const [view, setView] = useState<'dashboard' | 'history'>('dashboard'); 
-    
-    // State สำหรับเลือกวันที่ใน Dashboard
-    const latestDate = MOCK_DATA_SOURCE[MOCK_DATA_SOURCE.length - 1].date;
-    const [selectedDate, setSelectedDate] = useState<string>(latestDate);
+  const [view, setView] = useState<'dashboard' | 'history'>('dashboard');
+  const latestDate = MOCK_DATA_SOURCE[MOCK_DATA_SOURCE.length - 1].date;
+  const [selectedDate, setSelectedDate] = useState<string>(latestDate);
 
-    // ดึงข้อมูล Log ของวันที่เลือก
-    const currentLog: DailyLog | null = useMemo(() => {
-        return MOCK_DATA_SOURCE.find(log => log.date === selectedDate) || null;
-    }, [selectedDate]);
+  const currentLog = useMemo(() => 
+    MOCK_DATA_SOURCE.find(log => log.date === selectedDate) || null
+  , [selectedDate]);
 
-    return (
-        <div className="min-h-screen bg-stone-50 font-sans antialiased">
-            {/* Main Content Area */}
-            <main className="max-w-7xl mx-auto">
-                {view === 'dashboard' && (
-                    <DailyDashboard 
-                        selectedDate={selectedDate} 
-                        log={currentLog} 
-                        setView={setView} 
-                        setDate={setSelectedDate} 
-                    />
-                )}
-                {view === 'history' && (
-                    <HistoricalSummary setView={setView} />
-                )}
-            </main>
+  return (
+    <div className="min-h-screen bg-[#FDFCF8] text-stone-800 pb-20">
+      <GlobalStyles />
+      
+      {/* Navbar */}
+      <nav className="sticky top-0 z-40 glass-panel shadow-sm mb-8">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between h-20 items-center">
+            {/* Logo */}
+            <div className="flex items-center gap-3">
+              <div className="bg-gradient-to-br from-amber-400 to-orange-500 p-2.5 rounded-xl shadow-lg shadow-orange-200">
+                 <Egg className="text-white" size={24} strokeWidth={2.5} />
+              </div>
+              <div>
+                 <h1 className="text-xl font-bold text-stone-800 leading-none">Smart Farm</h1>
+                 <span className="text-xs font-medium text-stone-400 uppercase tracking-wider">Egg Sorting System</span>
+              </div>
+            </div>
+
+            {/* Desktop Navigation */}
+            <div className="hidden sm:flex bg-stone-100/50 p-1.5 rounded-xl border border-stone-200/50">
+               <button 
+                 onClick={() => setView('dashboard')}
+                 className={`flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-semibold transition-all duration-200 ${view === 'dashboard' ? 'bg-white text-amber-600 shadow-sm' : 'text-stone-500 hover:text-stone-700'}`}
+               >
+                 <LayoutDashboard size={18} /> ภาพรวมวันนี้
+               </button>
+               <button 
+                 onClick={() => setView('history')}
+                 className={`flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-semibold transition-all duration-200 ${view === 'history' ? 'bg-white text-amber-600 shadow-sm' : 'text-stone-500 hover:text-stone-700'}`}
+               >
+                 <History size={18} /> ประวัติย้อนหลัง
+               </button>
+            </div>
+          </div>
         </div>
-    );
+      </nav>
+
+      {/* Mobile Nav Tabs (Visible only on mobile) */}
+      <div className="sm:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-stone-200 p-2 z-50 flex justify-around">
+          <button onClick={() => setView('dashboard')} className={`flex flex-col items-center p-2 rounded-lg w-full ${view === 'dashboard' ? 'text-amber-600 bg-amber-50' : 'text-stone-400'}`}>
+             <LayoutDashboard size={24} />
+             <span className="text-[10px] font-medium mt-1">วันนี้</span>
+          </button>
+          <button onClick={() => setView('history')} className={`flex flex-col items-center p-2 rounded-lg w-full ${view === 'history' ? 'text-amber-600 bg-amber-50' : 'text-stone-400'}`}>
+             <History size={24} />
+             <span className="text-[10px] font-medium mt-1">ประวัติ</span>
+          </button>
+      </div>
+
+      {/* Main Content */}
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="mb-6">
+           <h2 className="text-2xl font-bold text-stone-800">
+             {view === 'dashboard' ? `สรุปผลผลิต (${formatDate(selectedDate)})` : 'รายงานข้อมูลย้อนหลัง'}
+           </h2>
+           <p className="text-stone-500 text-sm mt-1">
+             {view === 'dashboard' ? 'ตรวจสอบประสิทธิภาพการคัดแยกไข่ประจำวัน' : 'วิเคราะห์แนวโน้มและสรุปยอดรวมตามช่วงเวลา'}
+           </p>
+        </div>
+
+        {view === 'dashboard' ? (
+          <DailyDashboard 
+            selectedDate={selectedDate} 
+            log={currentLog} 
+            setView={setView} 
+            setDate={setSelectedDate} 
+          />
+        ) : (
+          <HistoryView setView={setView} />
+        )}
+      </main>
+    </div>
+  );
 };
 
 export default App;
